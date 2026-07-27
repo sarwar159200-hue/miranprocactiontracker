@@ -1064,50 +1064,27 @@ window.__renderDashboard = renderAll;
     saveUsers(users); setupError.textContent=''; grantAccess(users[0]);
   });
 
-  loginForm.addEventListener('submit', async function(e){
-    e.preventDefault();
-    var email=document.getElementById('login-user').value.trim().toLowerCase();
-    var password=document.getElementById('login-pass').value;
-    var hash=await sha256(password);
+  loginForm.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var email = document.getElementById('login-user').value.trim().toLowerCase();
+  var password = document.getElementById('login-pass').value;
 
-    // Permanent owner login works independently of localStorage.
-    // This prevents browser/file-storage restrictions from locking out Sarwar.
-    if(email === OWNER_EMAIL){
-      if(hash !== DEFAULT_OWNER_PASSWORD_HASH){
-        loginError.textContent='Incorrect password.';
-        return;
-      }
-      var ownerUser={
-        id:'owner',
-        name:'Sarwar Khalid',
-        email:OWNER_EMAIL,
-        role:'Owner',
-        active:true,
-        passwordHash:DEFAULT_OWNER_PASSWORD_HASH,
-        lastLogin:new Date().toISOString(),
-        createdAt:new Date().toISOString()
-      };
-      try{
-        var stored=readUsers().filter(function(u){ return String(u.email||'').toLowerCase() !== OWNER_EMAIL; });
-        stored.unshift(ownerUser);
-        saveUsers(stored);
-      }catch(storageError){ /* Owner login must still continue. */ }
-      loginError.textContent='';
-      grantAccess(ownerUser);
-      return;
-    }
+  const { data: users, error } = await supabaseClient
+    .from('users')
+    .select('*')
+    .eq('email', email)
+    .eq('password', password);
 
-    var user=readUsers().find(function(u){ return String(u.email||'').toLowerCase()===email; });
-    if(!user || user.active===false){ loginError.textContent='This email is not approved or is disabled.'; return; }
-    if(hash!==user.passwordHash){ loginError.textContent='Incorrect password.'; return; }
-    user.lastLogin=new Date().toISOString();
-    try{
-      var users=readUsers().map(function(u){ return u.email===user.email ? user : u; });
-      saveUsers(users);
-    }catch(storageError){}
-    loginError.textContent=''; grantAccess(user);
-  });
-
+  if (error || !users || users.length === 0) {
+    loginError.textContent = 'Invalid email or password.';
+  } else {
+    const activeUser = users[0];
+    localStorage.setItem('active_user', JSON.stringify(activeUser));
+    loginError.textContent = '';
+    alert(`Welcome back, ${activeUser.name || activeUser.email}!`);
+    location.reload();
+  }
+});
   document.getElementById('logout-btn').addEventListener('click', revokeAccess);
   var modal=document.getElementById('access-modal');
   document.getElementById('manage-users-btn').addEventListener('click',function(){ renderUsers(); modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); });
@@ -1140,19 +1117,31 @@ window.__renderDashboard = renderAll;
     });
   }
 
-  document.getElementById('add-user-form').addEventListener('submit',async function(e){
-    e.preventDefault(); if(!ensureOwner())return;
-    var name=document.getElementById('new-user-name').value.trim();
-    var email=document.getElementById('new-user-email').value.trim().toLowerCase();
-    var role=document.getElementById('new-user-role').value;
-    var password=document.getElementById('new-user-password').value;
-    var err=document.getElementById('add-user-error');
-    var users=readUsers();
-    if(users.some(function(u){return u.email===email;})){err.textContent='This email already exists.';return;}
-    if(password.length<8){err.textContent='Password must contain at least 8 characters.';return;}
-    users.push({id:'u_'+Date.now(),name:name,email:email,role:role,active:true,passwordHash:await sha256(password),createdAt:new Date().toISOString()});
-    saveUsers(users); err.textContent=''; e.target.reset(); renderUsers();
-  });
+ document.getElementById('add-user-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var name = document.getElementById('new-user-name').value.trim();
+  var email = document.getElementById('new-user-email').value.trim().toLowerCase();
+  var role = document.getElementById('new-user-role').value;
+  var password = document.getElementById('new-user-password').value;
+  var err = document.getElementById('add-user-error');
+
+  if (password.length < 8) {
+    err.textContent = 'Password must contain at least 8 characters.';
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from('users')
+    .insert([{ name: name, email: email, password: password, role: role }]);
+
+  if (error) {
+    err.textContent = 'Error: ' + error.message;
+  } else {
+    alert('User created successfully in cloud database!');
+    err.textContent = '';
+    e.target.reset();
+  }
+});
 
   document.getElementById('reset-owner-password-btn').addEventListener('click',async function(){
     if(!ensureOwner())return; var p=prompt('Enter your new owner password (minimum 8 characters):'); if(!p)return; if(p.length<8){alert('Password must contain at least 8 characters.');return;}
